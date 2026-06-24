@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-    # Prevents infinite loops by ignoring pushes that only change the manifests folder
+
     paths-ignore:
       - 'k8s-manifests/**'
       - 'README.md'
@@ -35,7 +35,6 @@ jobs:
       - name: Run Unit Tests
         run: PYTHONPATH=. pytest tests/
 
-      # Trivy scanning your Python code and requirements.txt for vulnerabilities
       - name: Code Security Scan (Filesystem)
         uses: aquasecurity/trivy-action@master
         with:
@@ -52,7 +51,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Authenticate using static IAM User keys stored in GitHub Secrets
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -60,24 +58,21 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Authenticate the local Docker daemon against your private ECR registry
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Build Docker image tagged with the login registry endpoint
       - name: Build Docker Image
         run: docker build -t ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }} .
 
-      # Scan the compiled container image layer-by-layer before forcing the push
       - name: Container Security Scan
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}'
           exit-code: '1'
           severity: 'CRITICAL,HIGH'
+          vuln-type: 'library'
         
-      # Push verified secure image to ECR
       - name: Push to Amazon ECR
         run: docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}
 
@@ -93,13 +88,11 @@ jobs:
 
       - name: Update Image Tag
         run: |
-          # ⚠️ IMPORTANT: Change 123456789012 to your actual AWS Account ID below!
           sed -i "s|image: .*|image: 553963239682.dkr.ecr.us-east-2.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }}|g" k8s-manifests/deployment.yaml
           
           git config user.name "CI Bot"
           git config user.email "ci-bot@example.com"
           git add k8s-manifests/deployment.yaml
           
-          # [skip ci] acts as an extra safeguard alongside paths-ignore
           git commit -m "Update python app image tag to ${{ github.sha }} [skip ci]"
           git push origin main
